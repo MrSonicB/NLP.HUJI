@@ -82,9 +82,10 @@ def compute_error_rate(test_set, most_likely_tags):
                 if tag != "NN":
                     unknown_words_incorrect_tags += 1
 
-    print("Error rate for un-known words:", unknown_words_incorrect_tags / unknown_words)
-    print("Error rate for known words:", known_words_incorrect_tags / known_words)
-    print("General error rate:", (unknown_words_incorrect_tags + known_words_incorrect_tags) / (unknown_words + known_words))
+    print("MLE Error rate for known words: {}".format(known_words_incorrect_tags / known_words))
+    print("MLE Error rate for un-known words: {}".format(unknown_words_incorrect_tags / unknown_words))
+    print("MLE General error rate: {}\n".format((unknown_words_incorrect_tags + known_words_incorrect_tags) /
+                                              (unknown_words + known_words)))
 
 
 def compute_transition(train_set):
@@ -114,22 +115,27 @@ def compute_transition(train_set):
     return transition_probs
 
 
-def compute_emission(train_set):
+def compute_emission(train_set, one_smoothing=False):
     # Create a dictionary of dictionaries: [tag] [word] [ number of times word was classified as this tag]
     emission_probs = defaultdict(lambda: defaultdict(int))
+    seen_words = set()
 
     for sentence in train_set:
 
         for word, tag in sentence:
             emission_probs[tag][word] += 1
+            seen_words.add(word)
 
     for tag in emission_probs.keys():
         total_num = 0
         for word in emission_probs[tag].keys():
             total_num += emission_probs[tag][word]
 
-        for word in emission_probs[tag].keys():
-            emission_probs[tag][word] /= total_num
+        for word in seen_words:
+            if one_smoothing:
+                emission_probs[tag][word] = (emission_probs[tag][word] + 1)/(total_num + len(seen_words))
+            else:
+                emission_probs[tag][word] /= total_num
 
     return emission_probs
 
@@ -230,7 +236,7 @@ def viterbi_algorithm(sentence, transition_probs, emission_probs, seen_words, al
     return tags_result
 
 
-def compute_error_rate_hmm(test_set, transition_probs, emission_probs, seen_words, all_tags):
+def compute_error_rate_hmm(test_set, transition_probs, emission_probs, seen_words, all_tags, model_name):
     known_words_incorrect_tags = 0
     unknown_words_incorrect_tags = 0
 
@@ -261,9 +267,11 @@ def compute_error_rate_hmm(test_set, transition_probs, emission_probs, seen_word
 
         #index += 1
 
-    print("HMM-Bigram Error rate for un-known words:", unknown_words_incorrect_tags / unknown_words)
-    print("HMM-Bigram Error rate for known words:", known_words_incorrect_tags / known_words)
-    print("HMM-Bigram General error rate:", (unknown_words_incorrect_tags + known_words_incorrect_tags) / (unknown_words + known_words))
+    print("{} error rate for known words: {}".format(model_name, known_words_incorrect_tags / known_words))
+    print("{} error rate for un-known words: {}".format(model_name, unknown_words_incorrect_tags / unknown_words))
+    print("{} general error rate: {}\n".format(model_name, (unknown_words_incorrect_tags + known_words_incorrect_tags) /
+          (unknown_words + known_words)))
+
 
 
 if __name__ == '__main__':
@@ -293,7 +301,13 @@ if __name__ == '__main__':
         seen_words.update(emission_probs[tag].keys())
 
     all_tags = get_all_pos_tags()
-    compute_error_rate_hmm(test_set, transition_probs, emission_probs, seen_words, all_tags)
 
+    model_name = "HMM-Bigram"
+    compute_error_rate_hmm(test_set, transition_probs, emission_probs, seen_words, all_tags, model_name)
 
+    # Question 4(d i)
+    new_emission_probs = compute_emission(train_set, one_smoothing=True)
 
+    # Question 4(d ii)
+    model_name = "HMM-Bigram-Laplace"
+    compute_error_rate_hmm(test_set, transition_probs, new_emission_probs, seen_words, all_tags, model_name)
