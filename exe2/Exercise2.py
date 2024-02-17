@@ -1,5 +1,3 @@
-import spacy
-import math
 import nltk
 from collections import defaultdict
 import re
@@ -89,8 +87,6 @@ def compute_error_rate(test_set, most_likely_tags):
     print("General error rate:", (unknown_words_incorrect_tags + known_words_incorrect_tags) / (unknown_words + known_words))
 
 
-############################ Bar ###################################
-
 def compute_transition(train_set):
     # Create a dictionary of dictionaries: [tag1] [tag2] [ number of times tag2 appeared after tag1]
     # Tags start and stop are included
@@ -153,8 +149,7 @@ def find_arg_max(pi_dict, k, u):
 
 
 def viterbi_algorithm(sentence, transition_probs, emission_probs, seen_words, all_tags):
-    #print("algorithm: {}".format(1))
-    # dict with [k, w, u]
+
     pi_dict = defaultdict(lambda: defaultdict(lambda: defaultdict(int)))
     bp_dict = defaultdict(lambda: defaultdict(lambda: defaultdict(str)))
 
@@ -162,11 +157,15 @@ def viterbi_algorithm(sentence, transition_probs, emission_probs, seen_words, al
     start_tag = 'start'
     stop_tag = 'stop'
     noun_tag = 'NN'
+    # In each iteration, we multiply by 10 to prevent the probability from becoming zero
+    # due to the accumulation of numerous values smaller than one
+    ten = 10
 
     # k = 1
     if sentence[0] in seen_words:
         for v in all_tags:
-            pi_dict[1][start_tag][v] = transition_probs[start_tag][v] * emission_probs[v][sentence[0]]
+            pi_dict[1][start_tag][v] = transition_probs[start_tag][v] * \
+                                       emission_probs[v][sentence[0]] * ten
     else:
         for v in all_tags:
             if v == noun_tag:
@@ -179,7 +178,8 @@ def viterbi_algorithm(sentence, transition_probs, emission_probs, seen_words, al
         for u in all_tags:
             for v in all_tags:
                 bp_dict[2][u][v] = start_tag
-                pi_dict[2][u][v] = pi_dict[1][start_tag][u] * transition_probs[u][v] * emission_probs[v][sentence[1]]
+                pi_dict[2][u][v] = pi_dict[1][start_tag][u] * transition_probs[u][v] * \
+                                   emission_probs[v][sentence[1]] * ten
     else:
         for u in all_tags:
             for v in all_tags:
@@ -188,7 +188,6 @@ def viterbi_algorithm(sentence, transition_probs, emission_probs, seen_words, al
                     pi_dict[2][u][v] = pi_dict[1][start_tag][u]
                 else:
                     pi_dict[2][u][v] = 0
-    #print("algorithm: finished k=2")
 
     # 2 < k < n + 1
     for k in range(3, n + 1):
@@ -197,17 +196,17 @@ def viterbi_algorithm(sentence, transition_probs, emission_probs, seen_words, al
                 w = find_arg_max(pi_dict, k-1, u)
                 for v in all_tags:
                     bp_dict[k][u][v] = w
-                    pi_dict[k][u][v] = pi_dict[k-1][w][u] * transition_probs[u][v] * emission_probs[v][sentence[k-1]]
+                    pi_dict[k][u][v] = pi_dict[k-1][w][u] * transition_probs[u][v] * \
+                                       emission_probs[v][sentence[k-1]] * ten
         else:
             for u in all_tags:
-                w = find_arg_max(pi_dict, k - 1, u)
+                w = find_arg_max(pi_dict, k-1, u)
                 for v in all_tags:
                     bp_dict[k][u][v] = w
                     if v == noun_tag:
                         pi_dict[k][u][v] = pi_dict[k-1][w][u]
                     else:
                         pi_dict[k][u][v] = 0
-        #print("algorithm: finished k={}".format(k))
 
     prev_last_tag = None
     last_tag = None
@@ -223,7 +222,7 @@ def viterbi_algorithm(sentence, transition_probs, emission_probs, seen_words, al
 
     tags_result = list([prev_last_tag, last_tag])
     for k in range(n-2, 0, -1):
-        tags_result.insert(0, bp_dict[k][tags_result[0]][tags_result[1]])
+        tags_result.insert(0, bp_dict[k+2][tags_result[0]][tags_result[1]])
 
     if n == 1:
         return tags_result[1:]
@@ -237,9 +236,9 @@ def compute_error_rate_hmm(test_set, transition_probs, emission_probs, seen_word
 
     known_words = 0
     unknown_words = 0
-    index = 1
+    #index = 1
     for sentence in test_set:
-        print("Sentence number {}".format(index))
+        #print("Sentence number {}".format(index))
         words = list()
         real_tags = list()
 
@@ -248,10 +247,8 @@ def compute_error_rate_hmm(test_set, transition_probs, emission_probs, seen_word
             real_tags.append(tag)
 
         predicted_tags = viterbi_algorithm(words, transition_probs, emission_probs, seen_words, all_tags)
-        print("predicted_tags = {}".format(predicted_tags))
-        assert(True == False)
-
         assert(len(real_tags) == len(predicted_tags))
+
         for k in range(len(predicted_tags)):
             if words[k] in seen_words:
                 known_words += 1
@@ -260,12 +257,9 @@ def compute_error_rate_hmm(test_set, transition_probs, emission_probs, seen_word
             else:
                 unknown_words += 1
                 if predicted_tags[k] != real_tags[k]:
-                    if predicted_tags[k] != 'NN':
-                        print("predicted_tags = {}".format(predicted_tags))
-                    assert(predicted_tags[k] == 'NN')
                     unknown_words_incorrect_tags += 1
 
-        index += 1
+        #index += 1
 
     print("HMM-Bigram Error rate for un-known words:", unknown_words_incorrect_tags / unknown_words)
     print("HMM-Bigram Error rate for known words:", known_words_incorrect_tags / known_words)
@@ -280,8 +274,8 @@ if __name__ == '__main__':
     train_set, test_set = load_dataset(category='news')
 
     # Print the number of sentences in the train and test sets
-    #print("Number of sentences in train set:", len(train_set))
-    #print("Number of sentences in test set:", len(test_set))
+    # print("Number of sentences in train set:", len(train_set))
+    # print("Number of sentences in test set:", len(test_set))
 
     # Question  3(b i)
     most_likely_tags = compute_most_likely_tags(train_set)
@@ -297,12 +291,9 @@ if __name__ == '__main__':
     seen_words = set()
     for tag in emission_probs.keys():
         seen_words.update(emission_probs[tag].keys())
-    #print("Number of seen words: {}".format(len(seen_words)))
 
     all_tags = get_all_pos_tags()
-    #print("Number possible POS tags: {}".format(len(all_tags)))
-
-    #compute_error_rate_hmm(test_set, transition_probs, emission_probs, seen_words, all_tags)
+    compute_error_rate_hmm(test_set, transition_probs, emission_probs, seen_words, all_tags)
 
 
 
