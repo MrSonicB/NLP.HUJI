@@ -383,6 +383,46 @@ def replace_pseudo_words(sentence, words_need_pseudo_replace):
     return sentence_with_pseudo_words
 
 
+def create_confusion_matrix(test_set, transition_probs, emission_probs, seen_words, all_tags, print_matrix=False):
+    # Initialize the confusion matrix -> [i = predicted tag i][j = predicted tag j] [ number of tokens which have a
+    # true tag i and a predicted tag j]
+    confusion_matrix = defaultdict(lambda: defaultdict(int))
+
+    # Iterate through the test set and predict tags using the Viterbi algorithm
+    for sentence in test_set:
+        words = [word for word, _ in sentence]
+        real_tags = [tag for _, tag in sentence]
+        predicted_tags = viterbi_algorithm(words, transition_probs, emission_probs, seen_words, all_tags)
+
+        # Update the confusion matrix
+        for i in range(len(real_tags)):
+            real_tag = real_tags[i]
+            predicted_tag = predicted_tags[i]
+            confusion_matrix[real_tag][predicted_tag] += 1
+
+    if print_matrix:
+        # Print the confusion matrix
+        print("Confusion matrix:")
+        print("\t" + "\t".join(all_tags))
+        for real_tag in all_tags:
+            row = [str(confusion_matrix[real_tag][predicted_tag]) for predicted_tag in all_tags]
+            print(f"{real_tag}\t" + "\t".join(row))
+
+    # Analyze the most frequent errors counts is going to be a list like this : [ ((real - i , predicted -j) ,
+    #  m[i,j]) =  amount of times a word/token has gotten this tuple (i,j) -> where ((i,j), m[i,j]) is added
+    # only if it is i!=j
+    print("10 most frequent errors:")
+    error_counts = []
+    for real_tag in all_tags:
+        for predicted_tag in all_tags:
+            if real_tag != predicted_tag:
+                error_counts.append(((real_tag, predicted_tag), confusion_matrix[real_tag][predicted_tag]))
+
+    error_counts.sort(key=lambda x: x[1], reverse=True)
+    for index, ((real_tag, predicted_tag), count) in enumerate(error_counts[:10]):
+        print(f"{index}: , True tag: {real_tag}, Predicted tag: {predicted_tag}, Count: {count}")
+
+
 if __name__ == '__main__':
     # Download the Brown corpus if it's not already downloaded
     nltk.download('brown')
@@ -412,11 +452,11 @@ if __name__ == '__main__':
     compute_error_rate_hmm(model_name, all_tags, train_words, test_set, transition_probs, emission_probs)
 
     # Question 4(d i)
-    new_emission_probs = compute_emission(train_set, one_smoothing=True)
+    smoothing_emission_probs = compute_emission(train_set, one_smoothing=True)
 
     # Question 4(d ii)
     model_name = "HMM-Bigram-Laplace"
-    compute_error_rate_hmm(model_name, all_tags, train_words, test_set, transition_probs, new_emission_probs)
+    compute_error_rate_hmm(model_name, all_tags, train_words, test_set, transition_probs, smoothing_emission_probs)
 
     # ---------------------------------------  QUESTION  E  i --------------------------------------------------------------
 
@@ -440,15 +480,26 @@ if __name__ == '__main__':
     pseudo_transition_probs = compute_transition(pseudo_train_set)
     pseudo_emission_probs = compute_emission(pseudo_train_set)
 
-    # Compute error rates with pseudo words smoothing
+    # Compute error rates with pseudo words
     model_name = "HMM-Bigram-Pseudo"
     compute_error_rate_hmm(model_name, all_tags, train_words, test_set, pseudo_transition_probs, pseudo_emission_probs,
                            words_need_pseudo_replace)
 
     # ---------------------------------  QUESTION  E  iii -----------------------------------------------------------
+    smoothing_pseudo_emission_probs = compute_emission(pseudo_train_set, one_smoothing=True)
+    # Compute error rates with pseudo words and one-smoothing
+    model_name = "HMM-Bigram-Pseudo-Laplace"
+    compute_error_rate_hmm(model_name, all_tags, train_words, test_set, pseudo_transition_probs,
+                           smoothing_pseudo_emission_probs, words_need_pseudo_replace)
 
-    # add add one smoothing
+    # compute confusion matrix
+    pseudo_vocabulary = set()
+    for word in train_words:
+        if word in words_need_pseudo_replace:
+            pseudo_vocabulary.add(classify_word(word))
+        else:
+            pseudo_vocabulary.add(word)
 
-    # [i = predicted tag i][j = predicted tag j] [ number of tokens which have a true tag i and a predicted tag j]
-    matrix = defaultdict(lambda: defaultdict(int))
+    create_confusion_matrix(test_set, pseudo_transition_probs, smoothing_pseudo_emission_probs, pseudo_vocabulary,
+                            all_tags)
 
