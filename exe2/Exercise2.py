@@ -44,6 +44,15 @@ def get_all_pos_tags():
     return all_pos_tags
 
 
+def get_vocabulary(tagged_sentences):
+    vocabulary = set()
+    for sentence in tagged_sentences:
+        for word, _ in sentence:
+            vocabulary.add(word)
+
+    return vocabulary
+
+
 def compute_most_likely_tags(train_set):
     # Create a dictionary of dictionaries: [word] [tag] [ number of times word was classified as this tag]
     word_tags = defaultdict(lambda: defaultdict(int))
@@ -118,22 +127,21 @@ def compute_transition(train_set):
 def compute_emission(train_set, one_smoothing=False):
     # Create a dictionary of dictionaries: [tag] [word] [ number of times word was classified as this tag]
     emission_probs = defaultdict(lambda: defaultdict(int))
-    seen_words = set()
+    train_words = get_vocabulary(train_set)
 
     for sentence in train_set:
 
         for word, tag in sentence:
             emission_probs[tag][word] += 1
-            seen_words.add(word)
 
     for tag in emission_probs.keys():
         total_num = 0
         for word in emission_probs[tag].keys():
             total_num += emission_probs[tag][word]
 
-        for word in seen_words:
+        for word in train_words:
             if one_smoothing:
-                emission_probs[tag][word] = (emission_probs[tag][word] + 1)/(total_num + len(seen_words))
+                emission_probs[tag][word] = (emission_probs[tag][word] + 1)/(total_num + len(train_words))
             else:
                 emission_probs[tag][word] /= total_num
 
@@ -154,7 +162,16 @@ def find_arg_max(pi_dict, k, u):
     return max_w
 
 
-def viterbi_algorithm(sentence, transition_probs, emission_probs, seen_words, all_tags):
+def viterbi_algorithm(sentence, transition_probs, emission_probs, vocabulary, all_tags):
+    """
+    Run Viterbi algorithm to calculate predicted tags
+    :param sentence: A list of words
+    :param transition_probs: A dictionary contain all transition probabilities
+    :param emission_probs: A dictionary contain all emission probabilities
+    :param vocabulary: A list of all possible words witness on emission dictionary
+    :param all_tags: A list of all possibles tags in brown corpus
+    :return: A list of predicted tags
+    """
 
     pi_dict = defaultdict(lambda: defaultdict(lambda: defaultdict(int)))
     bp_dict = defaultdict(lambda: defaultdict(lambda: defaultdict(str)))
@@ -168,7 +185,7 @@ def viterbi_algorithm(sentence, transition_probs, emission_probs, seen_words, al
     ten = 10
 
     # k = 1
-    if sentence[0] in seen_words:
+    if sentence[0] in vocabulary:
         for v in all_tags:
             pi_dict[1][start_tag][v] = transition_probs[start_tag][v] * \
                                        emission_probs[v][sentence[0]] * ten
@@ -180,7 +197,7 @@ def viterbi_algorithm(sentence, transition_probs, emission_probs, seen_words, al
                 pi_dict[1][start_tag][v] = 0
 
     # k = 2
-    if n >= 2 and sentence[1] in seen_words:
+    if n >= 2 and sentence[1] in vocabulary:
         for u in all_tags:
             for v in all_tags:
                 bp_dict[2][u][v] = start_tag
@@ -197,7 +214,7 @@ def viterbi_algorithm(sentence, transition_probs, emission_probs, seen_words, al
 
     # 2 < k < n + 1
     for k in range(3, n + 1):
-        if sentence[k-1] in seen_words:
+        if sentence[k-1] in vocabulary:
             for u in all_tags:
                 w = find_arg_max(pi_dict, k-1, u)
                 for v in all_tags:
@@ -236,27 +253,49 @@ def viterbi_algorithm(sentence, transition_probs, emission_probs, seen_words, al
     return tags_result
 
 
-def compute_error_rate_hmm(test_set, transition_probs, emission_probs, seen_words, all_tags, model_name):
+def compute_error_rate_hmm(model_name, all_tags, train_words, test_set, transition_probs, emission_probs,
+                           words_need_pseudo_replace={}):
+    """
+    Call Viterbi algorithm and prints error rates for known/unknown/all words from the train set
+    :param model_name: Name of the model
+    :param all_tags: A list of all possibles tags in brown corpus
+    :param train_words: All original words belongs to the training set
+    :param test_set: The training set
+    :param transition_probs: A dictionary contain all transition probabilities
+    :param emission_probs: A dictionary contain all emission probabilities
+           (emission's vocabulary may be different from the training set)
+    :param words_need_pseudo_replace: All words needed to replace with some pseudo word
+    :return: VOID
+    """
     known_words_incorrect_tags = 0
     unknown_words_incorrect_tags = 0
-
     known_words = 0
     unknown_words = 0
-    #index = 1
+
+    emission_vocabulary = set()
+    for tag in emission_probs.keys():
+        for word in emission_probs[tag].keys():
+            if emission_probs[tag][word] > 0:
+                emission_vocabulary.add(word)
+
     for sentence in test_set:
-        #print("Sentence number {}".format(index))
-        words = list()
+        sentence_words = list()
         real_tags = list()
 
         for word, tag in sentence:
-            words.append(word)
+            if word in words_need_pseudo_replace:
+                sentence_words.append(classify_word(word))
+            else:
+                sentence_words.append(word)
+
             real_tags.append(tag)
 
-        predicted_tags = viterbi_algorithm(words, transition_probs, emission_probs, seen_words, all_tags)
+        predicted_tags = viterbi_algorithm(sentence_words, transition_probs, emission_probs, emission_vocabulary, all_tags)
         assert(len(real_tags) == len(predicted_tags))
 
         for k in range(len(predicted_tags)):
-            if words[k] in seen_words:
+            word = sentence[k][0]
+            if word in train_words:
                 known_words += 1
                 if predicted_tags[k] != real_tags[k]:
                     known_words_incorrect_tags += 1
@@ -267,10 +306,13 @@ def compute_error_rate_hmm(test_set, transition_probs, emission_probs, seen_word
 
         #index += 1
 
-    print("{} error rate for known words: {}".format(model_name, known_words_incorrect_tags / known_words))
-    print("{} error rate for un-known words: {}".format(model_name, unknown_words_incorrect_tags / unknown_words))
-    print("{} general error rate: {}\n".format(model_name, (unknown_words_incorrect_tags + known_words_incorrect_tags) /
-          (unknown_words + known_words)))
+    if known_words > 0:
+        print("{} error rate for known words: {}".format(model_name, known_words_incorrect_tags / known_words))
+    if unknown_words > 0:
+        print("{} error rate for un-known words: {}".format(model_name, unknown_words_incorrect_tags / unknown_words))
+    if known_words + unknown_words > 0:
+        print("{} general error rate: {}\n".format(model_name, (unknown_words_incorrect_tags + known_words_incorrect_tags) /
+              (unknown_words + known_words)))
 
 
  # --------------------------------------------- * Noa - new methods  *  ---------------------------------------------
@@ -328,25 +370,28 @@ def classify_word(word):
 Keep the structure of sentences and tuples """
 
 
-def replace_pseudo_words(sentence, low_frequency_words):
-    set_pseudo_tags = []
+def replace_pseudo_words(sentence, words_need_pseudo_replace):
+    sentence_with_pseudo_words = []
 
     for word, tag in sentence:
-        if word in low_frequency_words:
-            class_replacement = classify_word(word)
-            set_pseudo_tags.append((class_replacement, tag))
+        if word in words_need_pseudo_replace:
+            pseudo_word = classify_word(word)
+            sentence_with_pseudo_words.append((pseudo_word, tag))
+        else:
+            sentence_with_pseudo_words.append((word, tag))
 
-
-    return set_pseudo_tags
-
+    return sentence_with_pseudo_words
 
 
 if __name__ == '__main__':
     # Download the Brown corpus if it's not already downloaded
     nltk.download('brown')
 
-    # Question 3(a)
+    # Question 3(a) + initiate important variables
     train_set, test_set = load_dataset(category='news')
+    train_words = get_vocabulary(train_set)
+    test_words = get_vocabulary(test_set)
+    all_tags = get_all_pos_tags()
 
     # Print the number of sentences in the train and test sets
     # print("Number of sentences in train set:", len(train_set))
@@ -363,61 +408,42 @@ if __name__ == '__main__':
     emission_probs = compute_emission(train_set)
 
     # Question 3(c iii)
-    seen_words = set()
-    for tag in emission_probs.keys():
-        seen_words.update(emission_probs[tag].keys())
-
-    all_tags = get_all_pos_tags()
-
     model_name = "HMM-Bigram"
-    compute_error_rate_hmm(test_set, transition_probs, emission_probs, seen_words, all_tags, model_name)
+    compute_error_rate_hmm(model_name, all_tags, train_words, test_set, transition_probs, emission_probs)
 
     # Question 4(d i)
     new_emission_probs = compute_emission(train_set, one_smoothing=True)
 
     # Question 4(d ii)
     model_name = "HMM-Bigram-Laplace"
-    compute_error_rate_hmm(test_set, transition_probs, new_emission_probs, seen_words, all_tags, model_name)
+    compute_error_rate_hmm(model_name, all_tags, train_words, test_set, transition_probs, new_emission_probs)
 
     # ---------------------------------------  QUESTION  E  i --------------------------------------------------------------
 
     words_frequency = count_words_frequency(train_set)
     frequency_thresh_hold = 3
     low_frequency_words = {k for k, v in words_frequency.items() if v < frequency_thresh_hold}
-    # un_known_words =
-    # @dor: we need to add the unknowm words too - > can I use the seen set you defined?
+    words_need_pseudo_replace = low_frequency_words | (test_words - train_words)
 
     # --------------------------------------  QUESTION  E  ii   ------------------------------------------------------------
-
-    pseudo_words_set = {
-        'twoDigitNum', 'fourDigitNum', 'containsDigitandAlpha', 'allCaps', 'startsWithCapital', 'NA'}
 
     # replace words with pseudo words
     pseudo_train_set = []
     for sentence in train_set:
-        res = replace_pseudo_words(sentence, low_frequency_words)
+        res = replace_pseudo_words(sentence, words_need_pseudo_replace)
         if res:
             pseudo_train_set.append(res)
-    print("pseudo_train_set", pseudo_train_set)
-
-    pseudo_test_set = []
-    for sentence in test_set:
-        res = replace_pseudo_words(sentence, low_frequency_words)
-        if res:
-            pseudo_test_set.append(res)
-    print("pseudo_test_set", pseudo_test_set)
 
     # Now we finished transitioning our corpus to pseudo indicators instead low frequency words we need
     # to recalculate the probabilities.
 
     pseudo_transition_probs = compute_transition(pseudo_train_set)
     pseudo_emission_probs = compute_emission(pseudo_train_set)
-    pseudo_seen_words = (seen_words - low_frequency_words) | pseudo_words_set
 
     # Compute error rates with pseudo words smoothing
-    print("e (ii) : Error rate with pseudo words smoothing: ")
-    print()
-    compute_error_rate_hmm(pseudo_test_set, pseudo_transition_probs, pseudo_emission_probs, pseudo_seen_words, all_tags)
+    model_name = "HMM-Bigram-Pseudo"
+    compute_error_rate_hmm(model_name, all_tags, train_words, test_set, pseudo_transition_probs, pseudo_emission_probs,
+                           words_need_pseudo_replace)
 
     # ---------------------------------  QUESTION  E  iii -----------------------------------------------------------
 
@@ -425,3 +451,4 @@ if __name__ == '__main__':
 
     # [i = predicted tag i][j = predicted tag j] [ number of tokens which have a true tag i and a predicted tag j]
     matrix = defaultdict(lambda: defaultdict(int))
+
