@@ -273,6 +273,73 @@ def compute_error_rate_hmm(test_set, transition_probs, emission_probs, seen_word
           (unknown_words + known_words)))
 
 
+ # --------------------------------------------- * Noa - new methods  *  ---------------------------------------------
+######################### NOA ########################
+
+
+# do I need to take off , ! stuff like that
+"""Go over all items in group count how many times they appeared """
+
+
+def count_words_frequency(input_set):
+    words_frequency = defaultdict(int)
+    for sentence in input_set:
+        for tup in sentence:
+            word = tup[0]
+
+            words_frequency[word] += 1
+    return words_frequency
+
+
+"""" Get a word and find it a pseudo tag classification """""
+
+
+def classify_word(word):
+    classes = []
+
+    # Check for two-digit number
+    if re.fullmatch(r'\d{2}', word):
+        classes.append('twoDigitNum')
+
+    # Check for four-digit number
+    if re.fullmatch(r'\d{4}', word):
+        classes.append('fourDigitNum')
+
+    # Check for a word containing both digits and alphabets
+    if re.search(r'\d', word) and re.search(r'[a-zA-Z]', word):
+        classes.append('containsDigitandAlpha')
+
+    # Check for all capital letters
+    if word.isupper():
+        classes.append('allCaps')
+
+    # check for a prefix of big letter  [ places names etc ]
+    else:
+        if word[0].isupper():
+            classes.append('startsWithCapital')
+
+    # we might want to address the usecase where there is more than one class wuits for word ( we can use
+    # our method here
+    classes.append('NA')  # no entity
+    return classes[0]
+
+
+"""Get a set go over it, if you encounter low frequency word -> change tags 
+Keep the structure of sentences and tuples """
+
+
+def replace_pseudo_words(sentence, low_frequency_words):
+    set_pseudo_tags = []
+
+    for word, tag in sentence:
+        if word in low_frequency_words:
+            class_replacement = classify_word(word)
+            set_pseudo_tags.append((class_replacement, tag))
+
+
+    return set_pseudo_tags
+
+
 
 if __name__ == '__main__':
     # Download the Brown corpus if it's not already downloaded
@@ -311,3 +378,50 @@ if __name__ == '__main__':
     # Question 4(d ii)
     model_name = "HMM-Bigram-Laplace"
     compute_error_rate_hmm(test_set, transition_probs, new_emission_probs, seen_words, all_tags, model_name)
+
+    # ---------------------------------------  QUESTION  E  i --------------------------------------------------------------
+
+    words_frequency = count_words_frequency(train_set)
+    frequency_thresh_hold = 3
+    low_frequency_words = {k for k, v in words_frequency.items() if v < frequency_thresh_hold}
+    # un_known_words =
+    # @dor: we need to add the unknowm words too - > can I use the seen set you defined?
+
+    # --------------------------------------  QUESTION  E  ii   ------------------------------------------------------------
+
+    pseudo_words_set = {
+        'twoDigitNum', 'fourDigitNum', 'containsDigitandAlpha', 'allCaps', 'startsWithCapital', 'NA'}
+
+    # replace words with pseudo words
+    pseudo_train_set = []
+    for sentence in train_set:
+        res = replace_pseudo_words(sentence, low_frequency_words)
+        if res:
+            pseudo_train_set.append(res)
+    print("pseudo_train_set", pseudo_train_set)
+
+    pseudo_test_set = []
+    for sentence in test_set:
+        res = replace_pseudo_words(sentence, low_frequency_words)
+        if res:
+            pseudo_test_set.append(res)
+    print("pseudo_test_set", pseudo_test_set)
+
+    # Now we finished transitioning our corpus to pseudo indicators instead low frequency words we need
+    # to recalculate the probabilities.
+
+    pseudo_transition_probs = compute_transition(pseudo_train_set)
+    pseudo_emission_probs = compute_emission(pseudo_train_set)
+    pseudo_seen_words = (seen_words - low_frequency_words) | pseudo_words_set
+
+    # Compute error rates with pseudo words smoothing
+    print("e (ii) : Error rate with pseudo words smoothing: ")
+    print()
+    compute_error_rate_hmm(pseudo_test_set, pseudo_transition_probs, pseudo_emission_probs, pseudo_seen_words, all_tags)
+
+    # ---------------------------------  QUESTION  E  iii -----------------------------------------------------------
+
+    # add add one smoothing
+
+    # [i = predicted tag i][j = predicted tag j] [ number of tokens which have a true tag i and a predicted tag j]
+    matrix = defaultdict(lambda: defaultdict(int))
